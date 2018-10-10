@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Configuration;
 using System.Net;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
@@ -49,7 +50,7 @@ namespace MvcApplication
                 RedirectUri = auth0RedirectUri,
                 PostLogoutRedirectUri = auth0PostLogoutRedirectUri,
 
-                ResponseType = OpenIdConnectResponseType.CodeIdToken,
+                ResponseType = OpenIdConnectResponseType.CodeIdTokenToken,
                 Scope = "openid profile",
 
                 TokenValidationParameters = new TokenValidationParameters
@@ -59,26 +60,22 @@ namespace MvcApplication
 
                 Notifications = new OpenIdConnectAuthenticationNotifications
                 {
+                    SecurityTokenValidated = notification =>
+                    {
+                        notification.AuthenticationTicket.Identity.AddClaim(new Claim("id_token", notification.ProtocolMessage.IdToken));
+                        notification.AuthenticationTicket.Identity.AddClaim(new Claim("access_token", notification.ProtocolMessage.AccessToken));
+
+                        return Task.FromResult(0);
+                    },
                     RedirectToIdentityProvider = notification =>
                     {
-                        if (notification.ProtocolMessage.RequestType == OpenIdConnectRequestType.Logout)
+                        if (notification.ProtocolMessage.RequestType == OpenIdConnectRequestType.Authentication)
                         {
-                            var logoutUri = $"https://{auth0Domain}/v2/logout?client_id={auth0ClientId}";
-
-                            var postLogoutUri = notification.ProtocolMessage.PostLogoutRedirectUri;
-                            if (!string.IsNullOrEmpty(postLogoutUri))
-                            {
-                                if (postLogoutUri.StartsWith("/"))
-                                {
-                                    // transform to absolute
-                                    var request = notification.Request;
-                                    postLogoutUri = request.Scheme + "://" + request.Host + request.PathBase + postLogoutUri;
-                                }
-                                logoutUri += $"&returnTo={ Uri.EscapeDataString(postLogoutUri)}";
-                            }
-
-                            notification.Response.Redirect(logoutUri);
-                            notification.HandleResponse();
+                            notification.ProtocolMessage.SetParameter("audience", "/circleciRS256/");
+                        }
+                        else if (notification.ProtocolMessage.RequestType == OpenIdConnectRequestType.Logout)
+                        {
+                            //...
                         }
                         return Task.FromResult(0);
                     }
